@@ -144,7 +144,6 @@ vector<uint> probe(Disk* disk, Mem* mem, vector<Bucket>& partitions) {
                 Page* hashPage = mem->mem_page(hash);
 
                 if (hashPage->full()) {
-                    // Assuming you have a method to add a page to a result or a way to manage full pages
                     probeResult.push_back(mem->flushToDisk(disk, hash));
                     hashPage->reset();
                 }
