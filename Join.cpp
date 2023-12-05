@@ -105,101 +105,72 @@ vector<Bucket> partition(Disk* disk, Mem* mem, pair<uint, uint> left_rel,
 vector<uint> probe(Disk* disk, Mem* mem, vector<Bucket>& partitions) {
 
     vector<uint> probeResult;
+    mem->reset();
 
-    //hash join for R and S
-    // for k-1 to B-1 do
+    // Loop through each partition
     for (uint i = 0; i < partitions.size(); i++) {
+        // Determine which is the smaller relation for this partition
+        Bucket partition = partitions[i];
+        bool is_left_smaller = partition.num_left_rel_record < partition.num_right_rel_record;
 
-        // get smaller relation
-        vector<uint> smallerRel;
-        vector<uint> largerRel;
-        
-        if (partitions[i].num_left_rel_record < partitions[i].num_right_rel_record)
-        {
-            smallerRel = partitions[i].get_left_rel();
-            largerRel = partitions[i].get_right_rel();
-        }
-        else
-        {
-            smallerRel = partitions[i].get_right_rel();
-            largerRel = partitions[i].get_left_rel();
+        vector<uint> smallerRel = is_left_smaller ? partition.get_left_rel() : partition.get_right_rel();
+        vector<uint> largerRel = is_left_smaller ? partition.get_right_rel() : partition.get_left_rel();
+
+        // Reset hash table memory pages
+        for (uint b = 0; b < MEM_SIZE_IN_PAGE - 2; b++) {
+            mem->mem_page(b)->reset();
         }
 
-        //for each tuple r in R
-        for (uint j : smallerRel)
-        {
-            mem->loadFromDisk(disk, j, MEM_SIZE_IN_PAGE - 2);
+        // Build hash table with the smaller relation
+        for (auto page_id : smallerRel) {
+            mem->loadFromDisk(disk, page_id, MEM_SIZE_IN_PAGE - 2);
+            Page* input_buffer = mem->mem_page(MEM_SIZE_IN_PAGE - 2);
 
-            //put r in bucket h2(r.p)
-            //for (uint k = 0; k < (mem->mem_page(0)->size()); k++) {
-            //    Record r = mem->mem_page(0)->get_record(k);
-            //    int hash = r.probe_hash() % (MEM_SIZE_IN_PAGE - 2);
-            //    // add r to the table in memory
-            //    mem->mem_page(hash)->loadRecord(r);
-            //}
-
-            for (uint k = 0; k < mem->mem_page(MEM_SIZE_IN_PAGE - 2)->size(); k++) {
-                Record r = mem->mem_page(MEM_SIZE_IN_PAGE - 2)->get_record(k);
-                int hash = r.probe_hash() % (MEM_SIZE_IN_PAGE - 2);
-                Page* hashPage = mem->mem_page(hash);
-
-                if (hashPage->full()) {
-                    probeResult.push_back(mem->flushToDisk(disk, hash));
-                    hashPage->reset();
-                }
-
-                hashPage->loadRecord(r);
+            for (uint r = 0; r < input_buffer->size(); ++r) {
+                Record record = input_buffer->get_record(r);
+                uint hash_val = record.probe_hash() % (MEM_SIZE_IN_PAGE - 2);
+                mem->mem_page(hash_val)->loadRecord(record);
             }
         }
-            
-        //for each tuple s in S
-        for (uint j : largerRel)
-        {
-            mem->loadFromDisk(disk, j, MEM_SIZE_IN_PAGE - 2);
 
-            //for each tuple r in bucket h2(s.o)
-            for (uint k = 0; k < (mem->mem_page(MEM_SIZE_IN_PAGE - 2)->size()); k++) {
-                Record s = mem->mem_page(MEM_SIZE_IN_PAGE - 2)->get_record(k);
-                int hash = s.probe_hash() % (MEM_SIZE_IN_PAGE - 2);
-                Page* hashPage = mem->mem_page(hash);
+        // Probe hash table with the larger relation
+        for (auto page_id : largerRel) {
+            mem->loadFromDisk(disk, page_id, MEM_SIZE_IN_PAGE - 2);
+            Page* input_buffer = mem->mem_page(MEM_SIZE_IN_PAGE - 2);
 
-                //if r.p == s.0
-                for (uint o = 0; o < hashPage->size(); o++)
-                {
-                    Record r = hashPage->get_record(o);
-                    // debugging statements to check the hash values
-                    //r.print();
-                    //s.print();
-                    //std::cout << hash << std::endl;
-                    //std::cout << r.probe_hash() % (MEM_SIZE_IN_PAGE - 2) << std::endl;
-                    if (r == s)
-                    {                     
-                        //put (r, s) in the output relation
-                        mem->mem_page(MEM_SIZE_IN_PAGE - 1)->loadPair(r, s);
+            for (uint r = 0; r < input_buffer->size(); ++r) {
+                Record probe_record = input_buffer->get_record(r);
+                uint hash_val = probe_record.probe_hash() % (MEM_SIZE_IN_PAGE - 2);
+                Page* matching_page = mem->mem_page(hash_val);
 
-                        // check if output page is full
-                        if (mem->mem_page(MEM_SIZE_IN_PAGE - 1)->full())
-                        { // dump output page when it is full
-                            probeResult.push_back(mem->flushToDisk(disk, MEM_SIZE_IN_PAGE - 1));
-                            //mem->mem_page(MEM_SIZE_IN_PAGE - 1)->reset();
+                for (uint s = 0; s < matching_page->size(); s++) {
+                    Record match_record = matching_page->get_record(s);
+                    if (probe_record == match_record) {
+                        Page* output_buffer = mem->mem_page(MEM_SIZE_IN_PAGE - 1);
+                        if (output_buffer->full()) {
+                            uint flushed_disk_page = mem->flushToDisk(disk, MEM_SIZE_IN_PAGE - 1);
+                            probeResult.push_back(flushed_disk_page);
+                            output_buffer->reset();
                         }
-
-                        
+                        output_buffer->loadPair(probe_record, match_record);
                     }
                 }
             }
         }
 
-        //clean up
-        for (uint n = 1; n <= MEM_SIZE_IN_PAGE - 2; n++) {
+        // Clear hash table memory pages for the next partition
+        for (uint n = 0; n < MEM_SIZE_IN_PAGE - 2; n++) {
             mem->mem_page(n)->reset();
         }
     }
 
-    // final flush
-    if (mem->mem_page(MEM_SIZE_IN_PAGE - 1)->size() > 0) {
-        probeResult.push_back(mem->flushToDisk(disk, MEM_SIZE_IN_PAGE - 1));
+    // Flush remaining records in output buffer
+    Page* output_buffer = mem->mem_page(MEM_SIZE_IN_PAGE - 1);
+    if (output_buffer->size() > 0) {
+        uint flushed_disk_page = mem->flushToDisk(disk, MEM_SIZE_IN_PAGE - 1);
+        probeResult.push_back(flushed_disk_page);
     }
 
     return probeResult;
 }
+
