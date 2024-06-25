@@ -1,6 +1,6 @@
 # Grace Hash Join Implementation
 
-This project involves implementing the partition and probe functions of the Grace Hash Join (GHJ) algorithm to efficiently manage and join large data sets by leveraging disk and memory data structures in C++. The objective is to simulate the data flow of records in disk and memory and perform join operations between two relations.
+The partition and probe functions of the Grace Hash Join (GHJ) algorithm are implemented to efficiently manage and join large data sets by leveraging disk and memory data structures. This project simulates the data flow of records in disk and memory and performs join operations between two relations.
 Project Structure
 
 The project consists of the following key components:
