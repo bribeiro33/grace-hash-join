@@ -18,6 +18,6 @@ The project consists of the following key components:
 
 ### Building and Running
 
-How to build: make
-How to run: ./GHJ left_rel.txt right_rel.txt
-How to clean: make clean
+- How to build: make
+- How to run: ./GHJ left_rel.txt right_rel.txt
+- How to clean: make clean
